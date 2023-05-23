@@ -9,13 +9,14 @@ import (
 	"os"
 	"testing"
 
+	"cloud.google.com/go/storage"
 	dcontext "github.com/distribution/distribution/v3/context"
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
 	"github.com/distribution/distribution/v3/registry/storage/driver/testsuites"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"
-	"google.golang.org/cloud/storage"
+	"google.golang.org/api/option"
 	"gopkg.in/check.v1"
 )
 
@@ -44,9 +45,9 @@ func init() {
 		return
 	}
 
-	credentialsJSON, err := ioutil.ReadFile(fmt.Sprint(credentials_path))
+	credentialsJSON, err := os.ReadFile(fmt.Sprint(credentials_path))
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Error reading JSON key : %v", err))
 	}
 
 	root, err := os.MkdirTemp("", "driver-")
@@ -68,6 +69,11 @@ func init() {
 
 	ts = creds.TokenSource
 
+	gcs, err := storage.NewClient(dcontext.Background(), option.WithCredentialsJSON(credentialsJSON))
+	if err != nil {
+		panic(fmt.Sprintf("Error initializing gcs client : %v", err))
+	}
+
 	gcsDriverConstructor = func(rootDirectory string) (storagedriver.StorageDriver, error) {
 		parameters := driverParameters{
 			bucket:         bucket,
@@ -76,7 +82,8 @@ func init() {
 			privateKey:     privateKey,
 			client:         oauth2.NewClient(dcontext.Background(), ts),
 			chunkSize:      defaultChunkSize,
-			maxConcurrency: defaultMaxConcurrency,
+			gcs:            gcs,
+			maxConcurrency: 8,
 		}
 
 		return New(parameters)
@@ -301,7 +308,7 @@ func TestURLFor(t *testing.T) {
 		t.Skip(skipGCS())
 	}
 
-	validRoot, err := ioutil.TempDir("", "driver-")
+	validRoot, err := os.MkdirTemp("", "driver-")
 	if err != nil {
 		t.Fatalf("unexpected error creating temporary directory: %v", err)
 	}
